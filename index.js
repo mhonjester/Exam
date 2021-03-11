@@ -1,69 +1,92 @@
-const fs = require("fs");
 const puppeteer = require("puppeteer");
-const storeProducts = require("./data.json");
+const storage = require("./data.json");
+const fs = require("fs");
 
-function getAllProducts() {
-  const products = storeProducts.Products;
+(getAllProducts = () => {
+  const products = storage.Products;
+  // console.log(products);
 
-  return console.log(products);
-}
+  return products;
+})();
 
-(async function scrapeProducts(url) {
+async function scrapeProducts(pageUrl) {
   try {
-    const browser = await puppeteer.launch();
+    const browser = await puppeteer.launch({ headless: true });
     const page = await browser.newPage();
-    await page.goto(url);
-    const content = {};
+    await page.goto(pageUrl);
+    await page.waitForSelector(".product-items");
 
-    const [el] = await page.$x('//*[@id="product-price-33412"]');
-    const id = await el.getProperty("id");
-    let srcId = await id.jsonValue();
+    const products = await page.$$("li.product-item");
 
-    const [el1] = await page.$x(
-      '//*[@id="m-navigation-product-list-wrapper"]/div[3]/ol/li[1]/div/div/strong/a'
-    );
-    const name = await el1.getProperty("textContent");
-    let rawText = await name.jsonValue();
+    for (const product of products) {
+      const ids = await product.$$eval(
+        "div.price-box.price-final_price",
+        (elem) => elem.map((e) => e.getAttribute("data-product-id"))
+      );
 
-    const [el2] = await page.$x(
-      '//*[@id="m-navigation-product-list-wrapper"]/div[3]/ol/li[1]/div/a/span/span/img'
-    );
-    const img = await el2.getProperty("src");
-    const srcImg = await img.jsonValue();
+      const names = await product.$(".product-item-link");
+      const productNames = await names.getProperty("textContent");
+      let nameResult = await productNames.jsonValue();
+      nameResult = nameResult.slice(15, nameResult.length).trim();
 
-    const [el3] = await page.$x('//*[@id="product-price-33412"]/span/text()');
-    const price = await el3.getProperty("textContent");
-    const rawNumber = await price.jsonValue();
+      const image = await product.$(".product-image-photo");
+      const imageUrl = await image.getProperty("src");
+      const imageResult = await imageUrl.jsonValue();
 
-    srcId = srcId.slice(14, srcId.length);
-    rawText = rawText.slice(15, rawText.length).trim();
+      const price = await product.$$eval("span.price-wrapper", (elem) =>
+        elem.map((e) => e.getAttribute("data-price-amount"))
+      );
 
-    console.log(srcId, rawText, srcImg, rawNumber);
-    const validation = storeProducts.Products.some(
-      (items) => items.name === rawText || items.id === srcId
-    );
-    if (validation) return console.log(`ERROR: Duplicate found!`);
+      const duplicates = storage.Products.filter((item) => item.id === ids[0]);
+      console.log(duplicates);
 
-    content.id = srcId;
-    content.name = rawText;
-    content.image = srcImg;
-    content.price = rawNumber;
-    content.currency = "MYR";
+      const duplicateProducts = storage.Products.some(
+        (item) =>
+          item.name === nameResult ||
+          (item.id === ids[0] && ids[0] !== undefined)
+      );
 
-    storeProducts.Products.push(content);
+      if (duplicateProducts) continue;
 
-    fs.writeFile(
-      "data.json",
-      JSON.stringify(storeProducts, null, 2),
-      (err, data) => {
-        return err ? err : data;
-      }
-    );
+      let allProducts = {};
+
+      allProducts.id = ids[0] === undefined ? "N/A" : ids[0];
+      allProducts.name = nameResult;
+      allProducts.images = imageResult;
+      allProducts.price = price[0] === undefined ? "N/A" : price[0];
+      allProducts.currency = "MYR";
+      storage.Products.push(allProducts);
+
+      await fs.writeFile(
+        "data.json",
+        JSON.stringify(storage, null, 2),
+        (err, data) => {
+          return err ? err : data;
+        }
+      );
+
+      console.log(`DONE!`);
+      console.log(storage.Products.length);
+    }
 
     browser.close();
   } catch (err) {
     return console.log(err);
   }
-})("https://www.senheng.com.my/computers-laptops/pc-peripherals.html");
+}
 
-// getAllProducts();
+scrapeProducts(
+  "https://www.senheng.com.my/computers-laptops/pc-peripherals.html"
+);
+scrapeProducts(
+  "https://www.senheng.com.my/computers-laptops/pc-peripherals.html?p=1"
+);
+scrapeProducts(
+  "https://www.senheng.com.my/computers-laptops/pc-peripherals.html?p=2"
+);
+scrapeProducts(
+  "https://www.senheng.com.my/computers-laptops/pc-peripherals.html?p=3"
+);
+scrapeProducts(
+  "https://www.senheng.com.my/computers-laptops/pc-peripherals.html?p=4"
+);
